@@ -12,8 +12,6 @@ from handlers import router
 
 
 async def main() -> None:
-    """Initialize app components and start polling."""
-
     print("BOT STARTING")
 
     # Инициализация базы данных
@@ -28,10 +26,12 @@ async def main() -> None:
     dp.include_router(router)
     print("ROUTER CONNECTED")
 
-    # Удаляем webhook и старые updates
-    # Это предотвращает TelegramConflictError
-    await bot.delete_webhook(drop_pending_updates=True)
-    print("WEBHOOK CLEARED")
+    # Чистим webhook
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        print("WEBHOOK CLEARED")
+    except Exception as e:
+        print(f"WEBHOOK CLEAN ERROR: {e}")
 
     try:
         print("START POLLING")
