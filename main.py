@@ -1,44 +1,40 @@
-"""Entry point for TrainCountBot."""
-
-from __future__ import annotations
-
 import asyncio
+import logging
 
 from aiogram import Bot, Dispatcher
 
 from config import BOT_TOKEN
 from database import init_db
 from handlers import router
+from logging_middleware import LoggingMiddleware
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+)
 
 
 async def main() -> None:
     print("BOT STARTING")
 
-    # Инициализация базы данных
     init_db()
     print("DATABASE INITIALIZED")
 
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
-    print("BOT AND DISPATCHER CREATED")
 
-    # Подключаем роутеры
+    dp.update.middleware(LoggingMiddleware())
+
     dp.include_router(router)
     print("ROUTER CONNECTED")
 
-    # Чистим webhook
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        print("WEBHOOK CLEARED")
-    except Exception as e:
-        print(f"WEBHOOK CLEAN ERROR: {e}")
+    await bot.delete_webhook(drop_pending_updates=True)
+    print("WEBHOOK CLEARED")
 
-    try:
-        print("START POLLING")
-        await dp.start_polling(bot)
-    finally:
-        print("BOT STOPPING")
-        await bot.session.close()
+    print("BOT USER:", await bot.get_me())
+
+    print("START POLLING")
+    await dp.start_polling(bot)
 
 
 if __name__ == "__main__":

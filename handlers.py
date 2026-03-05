@@ -23,6 +23,7 @@ from keyboards import get_balance_keyboard
 
 router = Router()
 ADMIN_ID = 7147954358
+
 INSTRUCTION_TEXT = """
 <b>TrainCountBot</b>
 
@@ -155,36 +156,39 @@ https://t.me/TrainCountBot
 
 
 def _balance_text(balance: int) -> str:
-    """Format balance message shown to users."""
     return f"Баланс тренировок: {balance}"
 
 
 async def send_instruction(message: Message) -> None:
-    """Send bot usage instruction in HTML format."""
     await message.answer(INSTRUCTION_TEXT, parse_mode="HTML")
 
 
 @router.message(Command("start"))
 async def cmd_start(message: Message) -> None:
-    """Handle /start for private and group chats."""
     if message.from_user is None:
         return
 
+    # PRIVATE CHAT
     if message.chat.type == ChatType.PRIVATE:
-        # Show instruction only once when trainer opens bot in private chat.
+
         user_id = message.from_user.id
+
+        # ВСЕГДА показываем инструкцию
+        await send_instruction(message)
+
         if not has_seen_private_instruction(user_id):
-            await send_instruction(message)
             mark_private_instruction_seen(user_id)
+
         return
 
-    # In groups, create chat (if needed), send balance message and pin it.
+    # GROUP CHAT
+
     chat_id = message.chat.id
     trainer_id = message.from_user.id
 
     chat = get_chat(chat_id)
+
     if chat is None:
-        # New chat starts with zero balance.
         chat = create_chat(chat_id=chat_id, trainer_id=trainer_id)
 
     sent_message = await message.answer(
@@ -192,7 +196,6 @@ async def cmd_start(message: Message) -> None:
         reply_markup=get_balance_keyboard(),
     )
 
-    # Pin can fail in some chats (for example, due to missing rights).
     try:
         await sent_message.pin(disable_notification=True)
     except TelegramBadRequest:
@@ -203,7 +206,7 @@ async def cmd_start(message: Message) -> None:
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
-    """Send instruction in group chats only for trainer."""
+
     if message.from_user is None:
         return
 
@@ -211,6 +214,7 @@ async def cmd_help(message: Message) -> None:
         return
 
     chat = get_chat(message.chat.id)
+
     if chat is None:
         return
 
@@ -222,21 +226,23 @@ async def cmd_help(message: Message) -> None:
 
 @router.message(Command("stats"))
 async def cmd_stats(message: Message) -> None:
-    """Show bot statistics for admin only."""
+
     if message.from_user is None or message.from_user.id != ADMIN_ID:
-        # Ignore non-admin users silently.
         return
 
     with sqlite3.connect(DB_PATH) as conn:
         trainers_count = conn.execute(
             "SELECT COUNT(DISTINCT trainer_id) FROM chats"
         ).fetchone()[0]
-        clients_count = conn.execute("SELECT COUNT(*) FROM chats").fetchone()[0]
+
+        clients_count = conn.execute(
+            "SELECT COUNT(*) FROM chats"
+        ).fetchone()[0]
+
         avg_clients_per_trainer = conn.execute(
             "SELECT COUNT(*) * 1.0 / COUNT(DISTINCT trainer_id) FROM chats"
         ).fetchone()[0]
 
-    # Protect from None when table is empty (division by zero).
     avg_value = float(avg_clients_per_trainer or 0.0)
 
     await message.answer(
@@ -261,13 +267,14 @@ async def cmd_stats(message: Message) -> None:
     )
 )
 async def balance_callbacks(callback: CallbackQuery) -> None:
-    """Handle inline buttons for changing/showing balance."""
+
     if callback.message is None or callback.data is None:
         await callback.answer()
         return
 
     chat_id = callback.message.chat.id
     user_id = callback.from_user.id
+
     chat = get_chat(chat_id)
 
     if chat is None:
@@ -277,21 +284,23 @@ async def balance_callbacks(callback: CallbackQuery) -> None:
     current_balance = chat["balance"]
     data = callback.data
 
-    # Everyone can request current balance.
     if data == "show_balance":
-        await callback.answer(f"Текущий баланс: {current_balance}", show_alert=True)
+        await callback.answer(
+            f"Текущий баланс: {current_balance}",
+            show_alert=True
+        )
         return
 
-    # Instruction can be requested only by trainer.
     if data == "show_instruction":
+
         if user_id != chat["trainer_id"]:
             await callback.answer()
             return
+
         await send_instruction(callback.message)
         await callback.answer()
         return
 
-    # Only trainer can change balance.
     if user_id != chat["trainer_id"]:
         await callback.answer(
             "Только тренер может управлять балансом тренировок",
@@ -312,12 +321,15 @@ async def balance_callbacks(callback: CallbackQuery) -> None:
     }
 
     new_balance = current_balance + delta_map[data]
+
     chat = update_balance(chat_id, new_balance)
+
     if chat is None:
         await callback.answer("Ошибка обновления баланса", show_alert=True)
         return
 
     pinned_message_id = chat.get("message_id") or callback.message.message_id
+
     try:
         await callback.bot.edit_message_text(
             chat_id=chat_id,
@@ -325,12 +337,14 @@ async def balance_callbacks(callback: CallbackQuery) -> None:
             text=_balance_text(new_balance),
             reply_markup=get_balance_keyboard(),
         )
+
     except TelegramBadRequest:
-        # Fallback: edit the message from callback if pinned one is unavailable.
+
         await callback.message.edit_text(
             _balance_text(new_balance),
             reply_markup=get_balance_keyboard(),
         )
+
         update_message_id(chat_id, callback.message.message_id)
 
     await callback.answer()
